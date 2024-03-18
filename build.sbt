@@ -1,4 +1,4 @@
-organization := "edu.berkeley.cs"
+organization := "ch.ethz.ee"
 version := "1.0"
-name := "cva6"
+name := "ara"
 scalaVersion := "2.13.10"

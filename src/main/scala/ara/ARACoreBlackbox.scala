@@ -5,11 +5,11 @@
 
 //------------------------------------------------------------------------------
 //------------------------------------------------------------------------------
-// CVA6 Tile Wrapper
+// ARA Tile Wrapper
 //------------------------------------------------------------------------------
 //------------------------------------------------------------------------------
 
-package cva6
+package ara
 
 import sys.process._
 
@@ -32,9 +32,10 @@ import freechips.rocketchip.util._
 import freechips.rocketchip.tile._
 import freechips.rocketchip.amba.axi4._
 
-class CVA6CoreBlackbox(
+class ARACoreBlackbox(
   traceportEnabled: Boolean,
   traceportSz: Int,
+  hartIdLen: Int,
   xLen: Int,
   rasEntries: Int,
   btbEntries: Int,
@@ -56,6 +57,7 @@ class CVA6CoreBlackbox(
   extends BlackBox(
     Map(
       "TRACEPORT_SZ" -> IntParam(traceportSz),
+      "HARTID_LEN" -> IntParam(hartIdLen),
       "XLEN" -> IntParam(xLen),
       "RAS_ENTRIES" -> IntParam(rasEntries),
       "BTB_ENTRIES" -> IntParam(btbEntries),
@@ -141,13 +143,13 @@ class CVA6CoreBlackbox(
   require((cacheRegCnt <= cacheRegAvail) && (cacheRegBase.length <= cacheRegAvail) && (cacheRegSz.length <= cacheRegAvail), s"Currently only supports $cacheRegAvail cacheable regions")
 
   val chipyardDir = System.getProperty("user.dir")
-  val cva6VsrcDir = s"$chipyardDir/generators/cva6/src/main/resources/cva6/vsrc"
+  val araVsrcDir = s"$chipyardDir/generators/ara/src/main/resources/ara/vsrc"
 
   // pre-process the verilog to remove "includes" and combine into one file
-  val make = s"make -C ${cva6VsrcDir} default "
+  val make = s"make -C ${araVsrcDir} clean default "
   val proc = if (traceportEnabled) make + "EXTRA_PREPROC_DEFINES=FIRESIM_TRACE" else make
   require (proc.! == 0, "Failed to run preprocessing step")
 
   // add wrapper/blackbox after it is pre-processed
-  addPath(s"$cva6VsrcDir/CVA6CoreBlackbox.preprocessed.sv")
+  addPath(s"$araVsrcDir/ARACoreBlackbox.preprocessed.sv")
 }

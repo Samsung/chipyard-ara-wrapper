@@ -5,11 +5,11 @@
 
 //------------------------------------------------------------------------------
 //------------------------------------------------------------------------------
-// CVA6 Tile Wrapper
+// ARA Tile Wrapper
 //------------------------------------------------------------------------------
 //------------------------------------------------------------------------------
 
-package cva6
+package ara
 
 import chisel3._
 import chisel3.util._
@@ -31,7 +31,7 @@ import freechips.rocketchip.tile._
 import freechips.rocketchip.amba.axi4._
 import freechips.rocketchip.prci.ClockSinkParameters
 
-case class CVA6CoreParams(
+case class ARACoreParams(
   bootFreqHz: BigInt = BigInt(1700000000),
   rasEntries: Int = 4,
   btbEntries: Int = 16,
@@ -48,7 +48,6 @@ case class CVA6CoreParams(
   val useAtomics: Boolean = true
   val useAtomicsOnlyForIO: Boolean = false // copied from Rocket
   val useCompressed: Boolean = true
-  override val useVector: Boolean = false
   val useSCIE: Boolean = false
   val useRVE: Boolean = false
   val mulDiv: Option[MulDivParams] = Some(MulDivParams()) // copied from Rocket
@@ -82,23 +81,27 @@ case class CVA6CoreParams(
   val useCryptoSM: Boolean = false
   val traceHasWdata: Boolean = false
   val useConditionalZero: Boolean = false
+
+  override val useVector: Boolean = true
+  override def vLen: Int = 2048
+  override def vMemDataBits: Int = 64
 }
 
-case class CVA6TileAttachParams(
-  tileParams: CVA6TileParams,
+case class ARATileAttachParams(
+  tileParams: ARATileParams,
   crossingParams: RocketCrossingParams
 ) extends CanAttachTile {
-  type TileType = CVA6Tile
+  type TileType = ARATile
   val lookup = PriorityMuxHartIdFromSeq(Seq(tileParams))
 }
 
-// TODO: BTBParams, DCacheParams, ICacheParams are incorrect in DTB... figure out defaults in CVA6 and put in DTB
-case class CVA6TileParams(
-  name: Option[String] = Some("cva6_tile"),
+// TODO: BTBParams, DCacheParams, ICacheParams are incorrect in DTB... figure out defaults in ARA and put in DTB
+case class ARATileParams(
+  name: Option[String] = Some("ara_tile"),
   tileId: Int = 0,
   trace: Boolean = false,
-  val core: CVA6CoreParams = CVA6CoreParams()
-) extends InstantiableTileParams[CVA6Tile]
+  val core: ARACoreParams = ARACoreParams()
+) extends InstantiableTileParams[ARATile]
 {
   val beuAddr: Option[BigInt] = None
   val blockerCtrlAddr: Option[BigInt] = None
@@ -107,19 +110,19 @@ case class CVA6TileParams(
   val dcache: Option[DCacheParams] = Some(DCacheParams())
   val icache: Option[ICacheParams] = Some(ICacheParams())
   val clockSinkParams: ClockSinkParameters = ClockSinkParameters()
-  def instantiate(crossing: HierarchicalElementCrossingParamsLike, lookup: LookupByHartIdImpl)(implicit p: Parameters): CVA6Tile = {
-    new CVA6Tile(this, crossing, lookup)
+  def instantiate(crossing: HierarchicalElementCrossingParamsLike, lookup: LookupByHartIdImpl)(implicit p: Parameters): ARATile = {
+    new ARATile(this, crossing, lookup)
   }
-  val baseName = name.getOrElse("cva6_tile")
+  val baseName = name.getOrElse("ara_tile")
   val uniqueName = s"${baseName}_$tileId"
 }
 
-class CVA6Tile private(
-  val cva6Params: CVA6TileParams,
+class ARATile private(
+  val araParams: ARATileParams,
   crossing: ClockCrossingType,
   lookup: LookupByHartIdImpl,
   q: Parameters)
-  extends BaseTile(cva6Params, crossing, lookup, q)
+  extends BaseTile(araParams, crossing, lookup, q)
   with SinksExternalInterrupts
   with SourcesExternalNotifications
 {
@@ -127,7 +130,7 @@ class CVA6Tile private(
    * Setup parameters:
    * Private constructor ensures altered LazyModule.p is used implicitly
    */
-  def this(params: CVA6TileParams, crossing: HierarchicalElementCrossingParamsLike, lookup: LookupByHartIdImpl)(implicit p: Parameters) =
+  def this(params: ARATileParams, crossing: HierarchicalElementCrossingParamsLike, lookup: LookupByHartIdImpl)(implicit p: Parameters) =
     this(params, crossing.crossingType, lookup, p)
 
   val intOutwardNode = None
@@ -138,7 +141,7 @@ class CVA6Tile private(
   masterNode :=* tlOtherMastersNode
   DisableMonitors { implicit p => tlSlaveXbar.node :*= slaveNode }
 
-  val cpuDevice: SimpleDevice = new SimpleDevice("cpu", Seq("openhwgroup,cva6", "riscv")) {
+  val cpuDevice: SimpleDevice = new SimpleDevice("cpu", Seq("pulp-platform,ara", "riscv")) {
     override def parent = Some(ResourceAnchors.cpus)
     override def describe(resources: ResourceBindings): Description = {
       val Description(name, mapping) = super.describe(resources)
@@ -155,25 +158,25 @@ class CVA6Tile private(
 
  override def makeMasterBoundaryBuffers(crossing: ClockCrossingType)(implicit p: Parameters) = crossing match {
     case _: RationalCrossing =>
-      if (!cva6Params.boundaryBuffers) TLBuffer(BufferParams.none)
+      if (!araParams.boundaryBuffers) TLBuffer(BufferParams.none)
       else TLBuffer(BufferParams.none, BufferParams.flow, BufferParams.none, BufferParams.flow, BufferParams(1))
     case _ => TLBuffer(BufferParams.none)
   }
 
   override def makeSlaveBoundaryBuffers(crossing: ClockCrossingType)(implicit p: Parameters) = crossing match {
     case _: RationalCrossing =>
-      if (!cva6Params.boundaryBuffers) TLBuffer(BufferParams.none)
+      if (!araParams.boundaryBuffers) TLBuffer(BufferParams.none)
       else TLBuffer(BufferParams.flow, BufferParams.none, BufferParams.none, BufferParams.none, BufferParams.none)
     case _ => TLBuffer(BufferParams.none)
   }
 
-  override lazy val module = new CVA6TileModuleImp(this)
+  override lazy val module = new ARATileModuleImp(this)
 
   /**
    * Setup AXI4 memory interface.
    * THESE ARE CONSTANTS.
    */
-  val portName = "cva6-mem-port-axi4"
+  val portName = "ara-mem-port-axi4"
   val idBits = 4
   val beatBytes = masterPortBeatBytes
   val sourceBits = 1 // equiv. to userBits (i think)
@@ -195,7 +198,7 @@ class CVA6Tile private(
     := AXI4Fragmenter() // deal with multi-beat xacts
     := memAXI4Node)
 
-  def connectCVA6Interrupts(debug: Bool, msip: Bool, mtip: Bool, m_s_eip: UInt) {
+  def connectARAInterrupts(debug: Bool, msip: Bool, mtip: Bool, m_s_eip: UInt) : Unit = {
     val (interrupts, _) = intSinkNode.in(0)
     debug := interrupts(0)
     msip := interrupts(1)
@@ -204,9 +207,9 @@ class CVA6Tile private(
   }
 }
 
-class CVA6TileModuleImp(outer: CVA6Tile) extends BaseTileModuleImp(outer){
+class ARATileModuleImp(outer: ARATile) extends BaseTileModuleImp(outer){
   // annotate the parameters
-  Annotated.params(this, outer.cva6Params)
+  Annotated.params(this, outer.araParams)
 
   val debugBaseAddr = BigInt(0x0) // CONSTANT: based on default debug module
   val debugSz = BigInt(0x1000) // CONSTANT: based on default debug module
@@ -222,7 +225,7 @@ class CVA6TileModuleImp(outer: CVA6Tile) extends BaseTileModuleImp(outer){
   // have the main memory be cached, but don't cache tohost/fromhost addresses
   // TODO: current cache subsystem can only support 1 cacheable region... so cache AFTER the tohost/fromhost addresses
   val wordOffset = 0x40
-  val (cacheableRegionBases, cacheableRegionSzs) = if (outer.cva6Params.core.enableToFromHostCaching) {
+  val (cacheableRegionBases, cacheableRegionSzs) = if (outer.araParams.core.enableToFromHostCaching) {
     val bases = Seq(p(ExtMem).get.master.base, BigInt(0x0), BigInt(0x0), BigInt(0x0), BigInt(0x0))
     val sizes   = Seq(p(ExtMem).get.master.size, BigInt(0x0), BigInt(0x0), BigInt(0x0), BigInt(0x0))
     (bases, sizes)
@@ -238,17 +241,18 @@ class CVA6TileModuleImp(outer: CVA6Tile) extends BaseTileModuleImp(outer){
   // been removed from TracedInstruction.
   val traceInstSz = (new freechips.rocketchip.rocket.TracedInstruction).getWidth + 2
 
-  // connect the cva6 core
-  val core = Module(new CVA6CoreBlackbox(
+  // connect the ara core
+  val core = Module(new ARACoreBlackbox(
     // traceport params
-    traceportEnabled = outer.cva6Params.trace,
-    traceportSz = (outer.cva6Params.core.retireWidth * traceInstSz),
+    traceportEnabled = outer.araParams.trace,
+    traceportSz = (outer.araParams.core.retireWidth * traceInstSz),
 
     // general core params
+    hartIdLen = 64, // CONSTANT: The same as AXI address width.
     xLen = p(XLen),
-    rasEntries = outer.cva6Params.core.rasEntries,
-    btbEntries = outer.cva6Params.core.btbEntries,
-    bhtEntries = outer.cva6Params.core.bhtEntries,
+    rasEntries = outer.araParams.core.rasEntries,
+    btbEntries = outer.araParams.core.btbEntries,
+    bhtEntries = outer.araParams.core.bhtEntries,
     exeRegCnt = executeRegionCnt,
     exeRegBase = executeRegionBases,
     exeRegSz = executeRegionSzs,
@@ -260,7 +264,7 @@ class CVA6TileModuleImp(outer: CVA6Tile) extends BaseTileModuleImp(outer){
     axiDataWidth = outer.beatBytes * 8,
     axiUserWidth = outer.sourceBits,
     axiIdWidth = outer.idBits,
-    pmpEntries = outer.cva6Params.core.pmpEntries
+    pmpEntries = outer.araParams.core.pmpEntries
   ))
 
   core.io.clk_i := clock
@@ -268,13 +272,13 @@ class CVA6TileModuleImp(outer: CVA6Tile) extends BaseTileModuleImp(outer){
   core.io.boot_addr_i := outer.resetVectorSinkNode.bundle
   core.io.hart_id_i := outer.hartIdSinkNode.bundle
 
-  outer.connectCVA6Interrupts(core.io.debug_req_i, core.io.ipi_i, core.io.time_irq_i, core.io.irq_i)
+  outer.connectARAInterrupts(core.io.debug_req_i, core.io.ipi_i, core.io.time_irq_i, core.io.irq_i)
 
-  if (outer.cva6Params.trace) {
+  if (outer.araParams.trace) {
     // unpack the trace io from a UInt into Vec(TracedInstructions)
     //outer.traceSourceNode.bundle <> core.io.trace_o.asTypeOf(outer.traceSourceNode.bundle)
 
-    for (w <- 0 until outer.cva6Params.core.retireWidth) {
+    for (w <- 0 until outer.araParams.core.retireWidth) {
       outer.traceSourceNode.bundle.insns(w).valid     := core.io.trace_o(traceInstSz*w + 2)
       outer.traceSourceNode.bundle.insns(w).iaddr     := core.io.trace_o(traceInstSz*w + 42, traceInstSz*w + 3)
       outer.traceSourceNode.bundle.insns(w).insn      := core.io.trace_o(traceInstSz*w + 74, traceInstSz*w + 43)
